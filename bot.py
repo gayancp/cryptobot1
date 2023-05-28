@@ -7,12 +7,13 @@ from tensorflow.keras.callbacks import ModelCheckpoint
 import requests
 from dateutil.relativedelta import relativedelta
 import numpy as np
-import datetime
+from datetime import datetime, timedelta
 import time
 from tensorflow.keras.layers import concatenate
 import talib
 from tensorflow.keras.layers import Flatten
 from tensorflow.keras.callbacks import ModelCheckpoint
+from tensorflow.keras.models import load_model
 
 # Step 1: Fetch past price movement data and calculate technical indicators
 # Fetch past price movement data from Binance API
@@ -230,49 +231,49 @@ def calculate_technical_indicators():
             sma_values.append(sma_value)
 
             # Calculate RSI
-            rsi_value = calculate_rsi(price, interval, timestamp, period)
+            rsi_value = calculate_rsi(df8hour, interval, timestamp, period)
             rsi_values.append(rsi_value)
 
             # Calculate MACD
-            macd_value = calculate_macd(price, interval, timestamp)
+            macd_value = calculate_macd(df8hour, interval, timestamp)
             macd_values.append(macd_value)
 
             # Calculate Bollinger Bands
-            upper_band, middle_band, lower_band = calculate_bollinger_bands(price, interval, timestamp, period)
+            upper_band, middle_band, lower_band = calculate_bollinger_bands(df8hour, interval, timestamp, period)
             upper_bands.append(upper_band)
             middle_bands.append(middle_band)
             lower_bands.append(lower_band)
 
             # Calculate Average True Range
-            atr_value = calculate_atr(price, interval, timestamp, period)
+            atr_value = calculate_atr(df8hour, interval, timestamp, period)
             atr_values.append(atr_value)
 
             # Calculate Stochastic Oscillator
-            slowk, slowd = calculate_stochastic_oscillator(price, interval, timestamp, period)
+            slowk, slowd = calculate_stochastic_oscillator(df8hour, interval, timestamp, period)
             slowks.append(slowk)
             slowds.append(slowd)
 
             # Calculate Moving Average Convergence Divergence Histogram
-            macd_hist_value = calculate_macd_histogram(price, interval, timestamp)
+            macd_hist_value = calculate_macd_histogram(df8hour, interval, timestamp)
             macd_hist_values.append(macd_hist_value)
 
             # Calculate On-Balance Volume
-            obv_value = calculate_on_balance_volume(price, interval, timestamp)
+            obv_value = calculate_on_balance_volume(df8hour, interval, timestamp)
             obv_values.append(obv_value)
 
             # Calculate Ichimoku Cloud
-            tenkan_sen, kijun_sen, senkou_span_a, senkou_span_b = calculate_ichimoku_cloud(price, interval, timestamp)
+            tenkan_sen, kijun_sen, senkou_span_a, senkou_span_b = calculate_ichimoku_cloud(df8hour, interval, timestamp)
             tenkan_sens.append(tenkan_sen)
             kijun_sens.append(kijun_sen)
             senkou_span_as.append(senkou_span_a)
             senkou_span_bs.append(senkou_span_b)
 
             # Calculate Chaikin Money Flow
-            cmf_value = calculate_chaikin_money_flow(price, interval, timestamp, period)
+            cmf_value = calculate_chaikin_money_flow(df8hour, interval, timestamp, period)
             cmf_values.append(cmf_value)
 
             # Calculate Williams %R
-            willr_value = calculate_williams_percent_r(price, interval, timestamp, period)
+            willr_value = calculate_williams_percent_r(df8hour, interval, timestamp, period)
             willr_values.append(willr_value)
 
     except ValueError:
@@ -326,9 +327,6 @@ def calculate_rmse(predicted_values, actual_values):
     mean_squared_diff = np.mean(squared_diff)
     rmse = np.sqrt(mean_squared_diff)
     return rmse
-
-
-#running part------------------------------------------------------------------------------------------------------------
 
 def training_process():
     #for 1 week data
@@ -402,6 +400,45 @@ def training_process():
         #normalize and preprocess
         norm_and_preprocess()
 
+def realworld_prediction():
+    loaded_model = load_model('trained_model.h5')
 
+    #for 8 hour data
+    start_time = datetime.now() - timedelta(hours=8)
+    end_time = datetime.now()
+
+    # Step 5: Define the training loop
+    while True:        
+        get_input(start_time, end_time)
+        norm_and_preprocess()
+
+        # Convert the 'timestamp' column to datetime type
+        normalized_df['timestamp'] = pd.to_datetime(normalized_df['timestamp'], unit='ms')
+
+        # Sort the DataFrame by timestamp in ascending order
+        normalized_df.sort_values('timestamp', inplace=True)
+
+        # Set the 'timestamp' column as the index
+        normalized_df.set_index('timestamp', inplace=True)
+
+        #technical indicator calculation
+        calculate_technical_indicators()
+
+        new_data = df8hour.values
+        predictions = loaded_model.predict(new_data)  # Make predictions using the loaded model
+
+        #trdaing strategy put here
+
+        time.sleep(50)
+
+        start_time = datetime.now() - timedelta(hours=8)
+        end_time = datetime.now()
+
+
+
+
+
+
+#Run Appropriate Code blocks------------------------------------------------------------------------------------------------------------
 define_models()
 training_process()
