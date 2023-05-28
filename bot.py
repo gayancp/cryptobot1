@@ -14,6 +14,7 @@ import talib
 from tensorflow.keras.layers import Flatten
 from tensorflow.keras.callbacks import ModelCheckpoint
 from tensorflow.keras.models import load_model
+from binance.client import Client
 
 # Step 1: Fetch past price movement data and calculate technical indicators
 # Fetch past price movement data from Binance API
@@ -25,6 +26,7 @@ symbol = 'BTCUSDT'
 intervals = ['3m','5m', '15m', '1h', '2h', '4h']#144 48 12 6 2
                             # Start time in milliseconds (e.g., Jan 1, 2021)
                             # End time in milliseconds (e.g., May 31, 2021)
+client = Client('api key', 'api secret')
 
 
 # GLOBAL variables
@@ -33,6 +35,11 @@ df = None
 normalized_df = None
 df8hour = pd.DataFrame()
 combined_model = None
+
+#trading strategy variables 
+bought_price1 = 0
+maxximum_price1 = 0
+quantity1 = 0
 
 # Define technical indicators calculation functions
 def calculate_sma(df, interval, timestamp, period):
@@ -400,6 +407,79 @@ def training_process():
         #normalize and preprocess
         norm_and_preprocess()
 
+def trading_strategy(predictions, normalized_df):
+    #get minimum and maxximum prices
+    max_price = np.max(predictions)
+    min_price = np.min(predictions)
+    current_price_row = normalized_df.iloc[-1]
+    current_price = current_price_row['price']
+    bought_price = bought_price1
+    maxximum_price = maxximum_price1
+
+    #binance data
+    account_info = client.futures_account()
+    symbol = 'BTCUSDT'
+
+    def pricemove():
+        price_data_between_prices = predictions[(predictions >= maxximum_price) & (predictions <= max_price)].tolist()
+        for i in price_data_between_prices:
+            if i < bought_price:
+                return False
+        return True
+                
+    if maxximum_price == 0 or (max_price > maxximum_price and pricemove()):
+        global maxximum_price1
+        maxximum_price, maxximum_price1 = max_price
+    
+    if bought_price1 == 0:
+        if max_price - min_price >= 50 and current_price <= min_price + 5:
+            #do buying--------------------------------------------------------------------------------
+            usdt_balance = float(account_info['availableBalance'])
+            order_type = Client.ORDER_TYPE_MARKET
+
+            # Calculate the quantity to buy based on the available USDT balance
+            ticker_price = float(client.futures_symbol_ticker(symbol=symbol)['price'])
+            global quantity1
+            quantity,quantity1 = usdt_balance / ticker_price
+            
+            # Create a market buy order
+            order = client.futures_create_order(
+                symbol=symbol,
+                side=Client.SIDE_BUY,
+                type=order_type,
+                quantity=quantity
+            )
+            global bought_price1
+            bought_price, bought_price1  = current_price
+
+            # Print the order response
+            print("Bought Successful, Bought Price: ", bought_price, "Quantity: ", quantity)
+            print(order)
+            
+            time.sleep(1)
+
+            #make a stop loss order to the same bought price
+            order = client.futures_create_order(
+                        symbol=symbol,
+                        side=Client.SIDE_SELL,
+                        type=Client.ORDER_TYPE_STOP_MARKET,
+                        stopPrice=bought_price,
+                        quantity=quantity
+                    )
+            print(f"Stop loss added to price: {bought_price}")
+
+    elif bought_price != 0:
+        if maxximum_price - 5 <= current_price:
+            #do selling
+            order = client.futures_create_order(
+                    symbol=symbol,
+                    side=Client.SIDE_SELL,
+                    type=Client.ORDER_TYPE_MARKET,
+                    quantity=quantity1
+                    )
+            print("Sold Successful, Sold Price: ", current_price, "Profit: ", (current_price - bought_price) * quantity)
+            bought_price = 0
+
 def realworld_prediction():
     loaded_model = load_model('trained_model.h5')
 
@@ -424,7 +504,7 @@ def realworld_prediction():
         #technical indicator calculation
         calculate_technical_indicators()
 
-        new_data = df8hour.values
+        new_data = normalized_df.values
         predictions = loaded_model.predict(new_data)  # Make predictions using the loaded model
 
         #trdaing strategy put here
