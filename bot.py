@@ -37,9 +37,13 @@ df8hour = pd.DataFrame()
 combined_model = None
 
 #trading strategy variables 
-bought_price1 = 0
-maxximum_price1 = 0
-quantity1 = 0
+bought_price = 0
+maxximum_price = 0
+quantity = 0
+
+#sold bought report
+report = []
+to_report = {"bought_price": "", "sold_price":"", "profit": ""}
 
 # Define technical indicators calculation functions
 def calculate_sma(df, interval, timestamp, period):
@@ -413,8 +417,6 @@ def trading_strategy(predictions, normalized_df):
     min_price = np.min(predictions)
     current_price_row = normalized_df.iloc[-1]
     current_price = current_price_row['price']
-    bought_price = bought_price1
-    maxximum_price = maxximum_price1
 
     #binance data
     account_info = client.futures_account()
@@ -428,10 +430,11 @@ def trading_strategy(predictions, normalized_df):
         return True
                 
     if maxximum_price == 0 or (max_price > maxximum_price and pricemove()):
-        global maxximum_price1
-        maxximum_price, maxximum_price1 = max_price
+        global maxximum_price
+        maxximum_price = max_price
     
-    if bought_price1 == 0:
+    #BUY
+    if bought_price == 0:
         if max_price - min_price >= 50 and current_price <= min_price + 5:
             #do buying--------------------------------------------------------------------------------
             usdt_balance = float(account_info['availableBalance'])
@@ -439,8 +442,8 @@ def trading_strategy(predictions, normalized_df):
 
             # Calculate the quantity to buy based on the available USDT balance
             ticker_price = float(client.futures_symbol_ticker(symbol=symbol)['price'])
-            global quantity1
-            quantity,quantity1 = usdt_balance / ticker_price
+            global quantity
+            quantity = usdt_balance / ticker_price
             
             # Create a market buy order
             order = client.futures_create_order(
@@ -449,8 +452,12 @@ def trading_strategy(predictions, normalized_df):
                 type=order_type,
                 quantity=quantity
             )
-            global bought_price1
-            bought_price, bought_price1  = current_price
+            global bought_price
+            bought_price = current_price
+            global maxximum_price
+            maxximum_price = max_price
+            global to_report
+            to_report['bought_price'] = bought_price
 
             # Print the order response
             print("Bought Successful, Bought Price: ", bought_price, "Quantity: ", quantity)
@@ -463,11 +470,21 @@ def trading_strategy(predictions, normalized_df):
                         symbol=symbol,
                         side=Client.SIDE_SELL,
                         type=Client.ORDER_TYPE_STOP_MARKET,
-                        stopPrice=bought_price,
+                        stopPrice=bought_price,                           #maybe a bug
                         quantity=quantity
                     )
             print(f"Stop loss added to price: {bought_price}")
 
+            if order['status'] == 'NEW':
+                print("Stop loss order placed!")
+
+            if current_price <= bought_price:
+                global maxximum_price
+                maxximum_price = 0
+                global bought_price
+                bought_price = 0
+
+    #SELL
     elif bought_price != 0:
         if maxximum_price - 5 <= current_price:
             #do selling
@@ -475,10 +492,13 @@ def trading_strategy(predictions, normalized_df):
                     symbol=symbol,
                     side=Client.SIDE_SELL,
                     type=Client.ORDER_TYPE_MARKET,
-                    quantity=quantity1
+                    quantity=quantity
                     )
             print("Sold Successful, Sold Price: ", current_price, "Profit: ", (current_price - bought_price) * quantity)
             bought_price = 0
+            to_report['sold_price'] = current_price
+            to_report['profit'] = (current_price - bought_price) * quantity
+            report.append(to_report)
 
 def realworld_prediction():
     loaded_model = load_model('trained_model.h5')
